@@ -12,4 +12,5 @@ Usage:
 
 Notice:
 1) Just using after each time visual studio upgrade, recognize & remove old version packages;
-2) If you're not clear what to do for the .cmd file, please do NOT click or run the .cmd.
+2) If you're not clear what to do for the .cmd file, please do NOT click or run the .cmd;
+3) Tell me if any question or dissatisfaction;
