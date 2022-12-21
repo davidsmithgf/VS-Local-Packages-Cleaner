@@ -85,6 +85,7 @@ namespace VS_Local_Packages_Cleaner
 
                     Console.WriteLine(dtPackages.Rows.Count + "\t" + dr[0] + "\t" + dr[3]);
                 }
+                Console.WriteLine("Operation in progress...");
 
                 // 2.1) Save package table to sqlite;
                 var toDeleteDirectoryNames = DealDataWithSqlite(dtPackages, newfileTimeline, connString, strDropTableSql, strCreateTableSql, strUpdateSql, strQuerySql).Result;
