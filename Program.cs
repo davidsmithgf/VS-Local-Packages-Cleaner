@@ -18,9 +18,10 @@ namespace VS_Local_Packages_Cleaner
     {
         static void Main(string[] args)
         {
+            #region Get config values
             var config = new ConfigurationBuilder().SetBasePath(Directory.GetCurrentDirectory()).AddJsonFile("appsettings.json").Build();
-            bool readCatalogJson = Convert.ToBoolean(config.GetSection("AppSettings")["readCatalogJson"]);
             string connString = config.GetConnectionString("sqlite");
+
             bool resetVerNum = Convert.ToBoolean(config.GetSection("AppSettings")["resetVerNum"]);
             string strDropTableSql = config.GetSection("AppSettings")["sqliteDropTable"];
             string strCreateTableSql = config.GetSection("AppSettings")["sqliteCreateTable"];
@@ -28,13 +29,21 @@ namespace VS_Local_Packages_Cleaner
                 config.GetSection("AppSettings")["sqliteUpdate2"] +
                 config.GetSection("AppSettings")["sqliteUpdate3"] +
                 config.GetSection("AppSettings")["sqliteUpdate4"] +
-                config.GetSection("AppSettings")["sqliteUpdate5"] +
-                config.GetSection("AppSettings")["sqliteUpdate6"];
-            string strUpdateSql223 = config.GetSection("AppSettings")["sqliteUpdate1"];
-            string strQuerySql = config.GetSection("AppSettings")["sqliteQuery"];
+                config.GetSection("AppSettings")["sqliteUpdate5"];
             DateTime newfileTimeline = Convert.ToDateTime(config.GetSection("AppSettings")["newfileTimeline"]);
+            if (newfileTimeline < DateTime.Now.AddDays(-3))
+                newfileTimeline = DateTime.Now.AddDays(-3);
 
-            Console.WriteLine("Local Visual Studio installation package full path: ");
+            bool readCatalogJson = Convert.ToBoolean(config.GetSection("AppSettings")["readCatalogJson"]);
+            string strDropTableAllSql = config.GetSection("AppSettings")["sqliteDropTableAll"];
+            string strCreateTableAllSql = config.GetSection("AppSettings")["sqliteCreateTableAll"];
+            string strUpdateAllSql = config.GetSection("AppSettings")["sqliteUpdate1"] +
+                config.GetSection("AppSettings")["sqliteUpdateAll"];
+
+            string strQuerySql = config.GetSection("AppSettings")["sqliteQuery"];
+            #endregion
+
+            Console.WriteLine("Input local Visual Studio installation cache full path: ");
             var dirPackages = new DirectoryInfo(Console.ReadLine().Trim());
             if (!dirPackages.Exists)
             {
@@ -42,17 +51,17 @@ namespace VS_Local_Packages_Cleaner
             }
             else
             {
-                var _fileName = dirPackages.Name + DateTime.Now.ToString("yyyyMMddHHmmss");
-                connString = connString.Replace("[PackagesFileName]", _fileName);
+                var _result = dirPackages.Name + DateTime.Now.ToString("yyyyMMddHHmmss");
+                connString = connString.Replace("[PackagesFileName]", _result);
 
                 var dtPackages = new DataTable("Packages");
-                dtPackages.Columns.Add(new DataColumn("DirectoryName", typeof(string)));
-                dtPackages.Columns.Add(new DataColumn("PackageName", typeof(string)));
-                dtPackages.Columns.Add(new DataColumn("PackageNameNoVer", typeof(string)));
-                dtPackages.Columns.Add(new DataColumn("LastWriteTime", typeof(DateTime)));
-                dtPackages.Columns.Add(new DataColumn("ToDelete", typeof(bool)));
+                dtPackages.Columns.Add(new DataColumn("DirectoryName", typeof(string))); // 0
+                dtPackages.Columns.Add(new DataColumn("PackageName", typeof(string))); // 1
+                dtPackages.Columns.Add(new DataColumn("PackageNameNoVer", typeof(string))); // 2
+                dtPackages.Columns.Add(new DataColumn("LastWriteTime", typeof(DateTime))); // 3
+                dtPackages.Columns.Add(new DataColumn("ToDelete", typeof(bool))); // 4
 
-                // 1) Get all package list for operation
+                // 1) Get all package list from directory
                 foreach (var pkg in dirPackages.GetDirectories())
                 {
                     if (pkg.Name == "certificates" || pkg.Name == "Archive")
@@ -83,46 +92,35 @@ namespace VS_Local_Packages_Cleaner
                     dr["ToDelete"] = false; // 4
                     dtPackages.Rows.Add(dr);
 
-                    Console.WriteLine(dtPackages.Rows.Count + "\t" + dr[0] + "\t" + dr[3]);
+                    Console.WriteLine(dtPackages.Rows.Count + " " + dr[0] + "\t" + dr[3]);
                 }
                 Console.WriteLine("Operation in progress...");
 
                 // 2.1) Save package table to sqlite;
-                var toDeleteDirectoryNames = DealDataWithSqlite(dtPackages, newfileTimeline, connString, strDropTableSql, strCreateTableSql, strUpdateSql, strQuerySql).Result;
+                DealDataInSqlite(dtPackages, newfileTimeline, connString, strDropTableSql, strCreateTableSql, strUpdateSql).Wait();
 
                 // 2.2) Compare directories in Catalog.Json with the directories in installation path
                 if (readCatalogJson)
                 {
-                    // 2.2.1) Find directories in Catalog.json
+                    // 2.2.1) Fetch directories in Catalog.json
                     var allDirectories = new Dictionary<string, VSPackage>();
                     var fileCatalogJson = dirPackages + "\\Catalog.json";
                     if (File.Exists(fileCatalogJson))
                     {
-                        var objCatalogJson = JObject.Parse(File.ReadAllText(fileCatalogJson, Encoding.UTF8));
-                        foreach (var p in JsonConvert.DeserializeObject<List<VSPackage>>(objCatalogJson["packages"].ToString()))
-                            if (!allDirectories.ContainsKey(p.ToString()))
-                                allDirectories.Add(p.ToString().ToLower(), p);
+                        try
+                        {
+                            var objCatalogJson = JObject.Parse(File.ReadAllText(fileCatalogJson, Encoding.UTF8));
+                            foreach (var p in JsonConvert.DeserializeObject<List<VSPackage>>(objCatalogJson["packages"].ToString()))
+                                if (!allDirectories.ContainsKey(p.ToString()))
+                                    allDirectories.Add(p.ToString(), p); // Try using ToString() to joint full directory name from catalog.json -> packages.
 
-                        // 2.2.2) Mark to delete directories if not exist in Catalog.json
-                        var notContainDirectories = new List<string>();
-                        var strDelDirForSqlite = new StringBuilder();
-                        foreach (DataRow dr in dtPackages.Rows)
-                            if (!allDirectories.ContainsKey(dr["DirectoryName"].ToString().ToLower()))
-                            {
-                                notContainDirectories.Add(dr["DirectoryName"].ToString());
-                                if (!toDeleteDirectoryNames.Contains(dr["DirectoryName"].ToString()))
-                                {
-                                    toDeleteDirectoryNames.Add(dr["DirectoryName"].ToString());
-                                    if (strDelDirForSqlite.Length > 0)
-                                        strDelDirForSqlite.Append(",\"" + dr["DirectoryName"].ToString() + "\"");
-                                    else
-                                        strDelDirForSqlite.Append("\"" + dr["DirectoryName"].ToString() + "\"");
-                                }
-                            }
-
-                        // 2.2.3) Update sqlite with mark "ToDelete"
-                        if (strDelDirForSqlite.Length > 0)
-                            UpdateDataWithSqlite(connString, strUpdateSql223 + "(" + strDelDirForSqlite.ToString() + ");");
+                            // 2.2.2) Mark to delete directories if not exist in Catalog.json
+                            DealDateWithCatelogInSqlite(allDirectories.Keys.ToList<string>(), connString, strDropTableAllSql, strCreateTableAllSql, strUpdateAllSql).Wait();
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine(ex.ToString());
+                        }
                     }
                     else
                     {
@@ -130,8 +128,11 @@ namespace VS_Local_Packages_Cleaner
                     }
                 }
 
+                // 2.3) Query directories to delete
+                var toDeleteDirectories = QueryDateInSqlite(connString, strQuerySql);
+
                 // 3) Create clean script for directory marked as "ToDelete"
-                CreateCleanerScript(Directory.GetCurrentDirectory(), _fileName + ".cmd", dirPackages.FullName, toDeleteDirectoryNames);
+                CreateCleanerScript(Directory.GetCurrentDirectory(), _result + ".cmd", dirPackages.FullName, toDeleteDirectories);
                 // OR 3) Move directory marked as "ToDelete" to recyclebin
                 // new DirectoryInfo(dirPackages.Root + "$RECYCLE.BIN").GetDirectories()
                 // pending for using first solution
@@ -194,8 +195,8 @@ namespace VS_Local_Packages_Cleaner
                 return strRtn.ToString();
         }
 
-        private static async Task<List<string>> DealDataWithSqlite(DataTable dtSource, DateTime newfileTimeline,
-             string connString, string strDropTableSql, string strCreateTableSql, string strUpdateSql, string strQuerySql)
+        private static async Task<bool> DealDataInSqlite(DataTable dtSource, DateTime newfileTimeline,
+             string connString, string strDropTableSql, string strCreateTableSql, string strUpdateSql)
         {
             using (var conn = new SQLiteConnection(connString))
             {
@@ -210,32 +211,27 @@ namespace VS_Local_Packages_Cleaner
                     conn.Execute(strCreateTableSql);
 
                     // 2.1.3) Loop and insert, save all packages into sqlite;
-                    foreach (DataRow r in dtSource.Rows)
-                        conn.Execute("INSERT INTO Packages(DirectoryName, PackageName, PackageNameNoVer, LastWriteTime, ToDelete) VALUES('" +
-                            r["DirectoryName"].ToString() + "', '" +
-                            r["PackageName"].ToString() + "', '" +
-                            r["PackageNameNoVer"].ToString() + "', '" +
-                            Convert.ToDateTime(r["LastWriteTime"]).ToString("yyyy-MM-dd HH:mm:ss") + "', '" +
-                            Convert.ToBoolean(r["ToDelete"]).ToString() + "');");
+                    using (var tran = conn.BeginTransaction())
+                    {
+                        foreach (DataRow r in dtSource.Rows)
+                            conn.Execute("INSERT INTO [Packages] ([DirectoryName], [PackageName], [PackageNameNoVer], [LastWriteTime], [ToDelete]) VALUES('" +
+                                r["DirectoryName"].ToString() + "', '" +
+                                r["PackageName"].ToString() + "', '" +
+                                r["PackageNameNoVer"].ToString() + "', '" +
+                                Convert.ToDateTime(r["LastWriteTime"]).ToString("yyyy-MM-dd HH:mm:ss") + "', '" +
+                                Convert.ToBoolean(r["ToDelete"]).ToString() + "');");
+                        tran.Commit();
+                    }
 
-                    // 2.1.4) Query & update which package should be marked as "ToDelete";
+                    // 2.1.4) Update which package should be marked as "ToDelete";
                     await conn.ExecuteAsync(strUpdateSql.Replace("yyyy-MM-dd HH:mm:ss", newfileTimeline.ToString("yyyy-MM-dd HH:mm:ss")));
 
-                    // 2.1.5) Query and sync data back, from sqlite file to DataTable
-                    var toDeleteDirectoryNames = new Dictionary<string, bool>();
-                    var toDeleteReader = conn.ExecuteReader(strQuerySql);
-                    while (toDeleteReader.Read())
-                        toDeleteDirectoryNames.Add(toDeleteReader["DirectoryName"].ToString(), true);
-                    foreach (DataRow r in dtSource.Rows)
-                        if (toDeleteDirectoryNames.ContainsKey(r["DirectoryName"].ToString()))
-                            r["ToDelete"] = true;
-
-                    return toDeleteDirectoryNames.Keys.AsList();
+                    return true;
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine(ex.ToString());
-                    return null;
+                    return false;
                 }
                 finally
                 {
@@ -248,7 +244,8 @@ namespace VS_Local_Packages_Cleaner
             }
         }
 
-        private static int UpdateDataWithSqlite(string connString, string strUpdateSql)
+        private static async Task<bool> DealDateWithCatelogInSqlite(List<string> allDirectoriesInCatelog,
+            string connString, string strDropTableSql, string strCreateTableSql, string strUpdateSql)
         {
             using (var conn = new SQLiteConnection(connString))
             {
@@ -256,12 +253,60 @@ namespace VS_Local_Packages_Cleaner
                 {
                     conn.Open();
 
-                    return conn.Execute(strUpdateSql);
+                    // 2.2.1) Drop table if exists
+                    conn.Execute(strDropTableSql);
+
+                    // 2.2.2) Create an empty table
+                    conn.Execute(strCreateTableSql);
+
+                    // 2.2.3) Loop and insert, save all directories into sqlite
+                    using (var tran = conn.BeginTransaction())
+                    {
+                        foreach (var d in allDirectoriesInCatelog)
+                            conn.Execute("INSERT INTO [All] ([DirectoryName]) VALUES('" + d + "');");
+                        tran.Commit();
+                    }
+
+                    // 2.3.4) Update which package should be marked as "ToDelete";
+                    await conn.ExecuteAsync(strUpdateSql);
+
+                    return true;
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine(ex.ToString());
-                    return -1;
+                    return false;
+                }
+                finally
+                {
+                    if (conn != null)
+                    {
+                        conn.Close();
+                        conn.Dispose();
+                    }
+                }
+            }
+        }
+
+        private static List<string> QueryDateInSqlite(string connString, string strQuerySql)
+        {
+            using (var conn = new SQLiteConnection(connString))
+            {
+                try
+                {
+                    conn.Open();
+
+                    var toDeleteDirectories = new List<string>();
+                    var toDeleteReader = conn.ExecuteReader(strQuerySql);
+                    while (toDeleteReader.Read())
+                        toDeleteDirectories.Add(toDeleteReader["DirectoryName"].ToString());
+
+                    return toDeleteDirectories;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.ToString());
+                    return null;
                 }
                 finally
                 {
