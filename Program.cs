@@ -85,7 +85,7 @@ namespace VS_Local_Packages_Cleaner
                     if (pkg.Name.Contains("Win11SDK_")) majorVer = 3;
 
                     var dr = dtPackages.NewRow();
-                    dr["DirectoryName"] = pkg.Name; // 0
+                    dr["DirectoryName"] = pkg.Name.ToLower(); // 0
                     dr["PackageName"] = pkgName; // 1
                     dr["PackageNameNoVer"] = GetNoMinorVersion(pkgName, majorVer, resetVerNum); // 2
                     dr["LastWriteTime"] = pkg.LastWriteTimeUtc; // 3
@@ -112,7 +112,7 @@ namespace VS_Local_Packages_Cleaner
                             var objCatalogJson = JObject.Parse(File.ReadAllText(fileCatalogJson, Encoding.UTF8));
                             foreach (var p in JsonConvert.DeserializeObject<List<VSPackage>>(objCatalogJson["packages"].ToString()))
                                 if (!allDirectories.ContainsKey(p.ToString()))
-                                    allDirectories.Add(p.ToString(), p); // Try using ToString() to joint full directory name from catalog.json -> packages.
+                                    allDirectories.Add(p.ToString().ToLower(), p); // Try using ToString() to joint full directory name from catalog.json -> packages.
 
                             // 2.2.2) Mark to delete directories if not exist in Catalog.json
                             DealDateWithCatelogInSqlite(allDirectories.Keys.ToList<string>(), connString, strDropTableAllSql, strCreateTableAllSql, strUpdateAllSql).Wait();
