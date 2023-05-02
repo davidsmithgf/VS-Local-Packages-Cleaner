@@ -20,7 +20,7 @@ namespace VS_Local_Packages_Cleaner.CatalogJson
         public string productCode { get; set; }
         public string upgradeCode { get; set; }
         public string productVersion { get; set; }
-        public int? productLanguage { get; set; }
+        public long? productLanguage { get; set; }
         public string providerKey { get; set; }
         public InstallSizes installSizes { get; set; }
         public List<LogFile> logFiles { get; set; }
@@ -72,7 +72,7 @@ namespace VS_Local_Packages_Cleaner.CatalogJson
     {
         public string fileName { get; set; }
         public string sha256 { get; set; }
-        public int size { get; set; }
+        public long size { get; set; }
         public string url { get; set; }
         public Signer signer { get; set; }
         public bool? isDynamicEndpoint { get; set; }
