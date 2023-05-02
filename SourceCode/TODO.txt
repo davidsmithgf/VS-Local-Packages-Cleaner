@@ -1,0 +1,13 @@
+1)输入文件夹路径；
+2)获取输入文件夹下，所有子文件夹；
+3)存SQLite与内存Datatable：文件夹名称、(经处理)程序包名、文件夹最后修改日期、是否删除(默认否)
+4)选取所有待删除文件夹：每个相同(经处理)程序包名，且非最新日期的，标记可删除；
+5)生成删除文件夹批处理命令(DONE)或移至回收站(pending)；
+
+架构兼容：
+,chip=x86
+,chip=x64
+,machinearch=arm64
+,machinearch=x64
+,machinearch=x86
+,productarch=neutral
